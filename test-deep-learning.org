@@ -1,0 +1,23 @@
+#+TITLE: Deep Learning with Transformers
+
+* Transformer Architecture
+
+The transformer architecture revolutionized natural language processing and has been adapted for many other domains.
+
+** Attention Mechanisms
+
+Self-attention allows the model to focus on different parts of the input sequence when processing each element.
+
+** Multi-head Attention
+
+Multiple attention heads capture different types of relationships in the data simultaneously.
+
+* Applications
+
+Transformers are used in:
+- GPT models for text generation
+- BERT for language understanding  
+- Vision Transformers (ViT) for image classification
+- DALL-E for image generation
+
+The attention mechanism is the key innovation that makes transformers so powerful for sequence modeling.

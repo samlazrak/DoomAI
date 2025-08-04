@@ -149,6 +149,37 @@ org-roam network. This helps maintain consistent tagging patterns."
                tag-counts)
       (mapcar #'car (sort tag-list (lambda (a b) (> (cdr a) (cdr b))))))))
 
+(defun +doomai--format-connection-suggestions (notes)
+  "Format a list of org-roam NOTES for display in completion interface.
+Each note is a cons cell (TITLE . FILE-PATH). Returns a list of
+formatted strings suitable for completing-read."
+  (mapcar (lambda (note)
+            (let ((title (car note))
+                  (file (cdr note)))
+              ;; Format: "Title (relative/path/to/file.org)"
+              (format "%s (%s)" 
+                      title
+                      (if (and (boundp 'org-roam-directory) org-roam-directory)
+                          (file-relative-name file org-roam-directory)
+                        (file-name-nondirectory file)))))
+          notes))
+
+(defun +doomai--insert-org-link (title file-path)
+  "Insert an org-roam style link for the note with TITLE at FILE-PATH.
+Creates a link in the format [[id:node-id][title]] if org-roam is available,
+otherwise creates a file link [[file:path][title]]."
+  (let ((link-text
+         (if (and (fboundp 'org-roam-node-from-title-or-alias)
+                  (fboundp 'org-roam-node-id))
+             ;; Try to get org-roam ID-based link
+             (if-let ((node (org-roam-node-from-title-or-alias title)))
+                 (format "[[id:%s][%s]]" (org-roam-node-id node) title)
+               ;; Fallback to file link if node not found
+               (format "[[file:%s][%s]]" file-path title))
+           ;; Fallback to file link if org-roam not available
+           (format "[[file:%s][%s]]" file-path title))))
+    (insert link-text)))
+
 ;;
 ;;; Interactive Commands
 ;; These functions provide the user-facing interface for DoomAI functionality.
@@ -216,11 +247,61 @@ in a separate buffer for review before potential integration."
 
 ;;;###autoload
 (defun +doomai/suggest-connections ()
-  "Suggest connections to other notes in the org-roam database.
-Future feature: Will analyze current note content and suggest
-related notes from the org-roam database for cross-linking."
+  "Suggest connections to other notes in the org-roam network.
+Analyzes current note content and suggests semantically related notes
+from the org-roam network for cross-linking. Uses AI to find non-obvious
+connections between ideas and concepts."
   (interactive)
-  (message "Connection suggestions - Feature coming soon!"))
+  (unless (derived-mode-p 'org-mode)
+    (user-error "DoomAI connection suggestions only work in org-mode buffers"))
+  
+  (let* ((all-notes (+doomai--get-org-roam-notes))
+         (current-file (buffer-file-name))
+         ;; Exclude current note from suggestions
+         (other-notes (cl-remove-if (lambda (note) 
+                                     (string= (cdr note) current-file))
+                                   all-notes)))
+    
+    (unless other-notes
+      (user-error "No other org-roam notes found for connection suggestions"))
+    
+    (let* ((content (buffer-string))
+           ;; Create a summary of available notes for AI context
+           (notes-context (mapconcat (lambda (note)
+                                      (format "- %s" (car note)))
+                                    (take 50 other-notes) "\n"))
+           (messages `[((role . "user") 
+                        (content . ,(format "Based on this note content, suggest %d most relevant notes to link to from this list. Return ONLY the exact note titles, one per line, no explanation:\n\nAvailable notes:\n%s\n\nCurrent note content:\n%s"
+                                           doomai-max-suggestions
+                                           notes-context
+                                           content)))])
+           (response (+doomai--make-request messages)))
+      
+      (when-let ((suggestions-text (cdr (assq 'content (cdr (assq 'message (aref (cdr (assq 'choices response)) 0)))))))
+        ;; Parse line-separated note titles
+        (let* ((suggested-titles (mapcar #'string-trim 
+                                        (split-string suggestions-text "\n" t)))
+               ;; Find matching notes from our list
+               (matching-notes (cl-remove-if-not 
+                               (lambda (note)
+                                 (member (car note) suggested-titles))
+                               other-notes))
+               ;; Format for display
+               (formatted-options (when matching-notes
+                                   (+doomai--format-connection-suggestions matching-notes))))
+          
+          (if formatted-options
+              (let ((selection (completing-read "Select note to link: " 
+                                               formatted-options nil t)))
+                ;; Extract the title from the formatted selection
+                (when (string-match "^\\(.*?\\) (" selection)
+                  (let* ((selected-title (match-string 1 selection))
+                         (selected-note (cl-find selected-title matching-notes 
+                                                :key #'car :test #'string=)))
+                    (when selected-note
+                      (+doomai--insert-org-link (car selected-note) (cdr selected-note))
+                      (message "DoomAI: Inserted link to '%s'" (car selected-note))))))
+            (message "DoomAI: No relevant connections found")))))))
 
 ;;;###autoload
 (defun +doomai/auto-tag ()
