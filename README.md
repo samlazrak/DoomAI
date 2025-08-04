@@ -5,8 +5,6 @@ A standalone AI-powered note enhancement module for Doom Emacs, designed specifi
 ## Features
 
 ### Multi-Server Architecture
-- **Tailscale Server** (Primary): `http://100.109.107.21:8080/v1`
-- **Local Network** (Secondary): `http://192.168.8.186:8080/v1` 
 - **LM Studio** (Tertiary): `http://127.0.0.1:1234` (requires `/v1` prefix)
 - Automatic failover with health monitoring
 - Fallback endpoint support (`/chat/completions` if `/v1/chat/completions` fails)
