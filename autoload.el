@@ -180,6 +180,75 @@ otherwise creates a file link [[file:path][title]]."
            (format "[[file:%s][%s]]" file-path title))))
     (insert link-text)))
 
+(defun +doomai--search-notes (query)
+  "Search through org-roam notes using AI semantic matching.
+Returns a list of notes ranked by relevance to QUERY, where each
+note is a cons cell (TITLE . FILE-PATH)."
+  (let* ((all-notes (+doomai--get-org-roam-notes))
+         ;; Create content summaries for AI analysis
+         (notes-with-content 
+          (mapcar (lambda (note)
+                    (let ((title (car note))
+                          (file (cdr note)))
+                      (when (file-exists-p file)
+                        (with-temp-buffer
+                          (insert-file-contents file nil 0 (* doomai-search-preview-length 3))
+                          (let ((content (buffer-string)))
+                            (cons note (string-trim content)))))))
+                  all-notes))
+         ;; Remove nil entries (files that don't exist)
+         (valid-notes (cl-remove-if #'null notes-with-content))
+         ;; Format notes for AI analysis
+         (notes-context 
+          (mapconcat (lambda (note-entry)
+                      (let ((title (car (car note-entry)))
+                            (content (cdr note-entry)))
+                        (format "TITLE: %s\nCONTENT: %s\n---" 
+                               title 
+                               (substring content 0 (min (length content) doomai-search-preview-length)))))
+                    (take doomai-search-limit valid-notes) "\n\n")))
+    
+    (when notes-context
+      (let* ((messages `[((role . "user") 
+                          (content . ,(format "Search query: \"%s\"\n\nFind the %d most relevant notes. IMPORTANT: Include exact matches first (notes with '%s' in title or content), then semantically related notes.\n\nReturn ONLY the note titles, one per line, no explanations:\n\n%s"
+                                             query
+                                             doomai-max-suggestions
+                                             query
+                                             notes-context)))])
+             (response (+doomai--make-request messages)))
+        
+        (when-let ((results-text (cdr (assq 'content (cdr (assq 'message (aref (cdr (assq 'choices response)) 0)))))))
+          ;; Parse line-separated titles and find matching notes
+          (let ((suggested-titles (mapcar #'string-trim 
+                                         (split-string results-text "\n" t))))
+            (cl-remove-if-not 
+             (lambda (note)
+               (member (car note) suggested-titles))
+             all-notes)))))))
+
+(defun +doomai--format-search-results (notes query)
+  "Format search results NOTES for display with previews.
+Each note is a cons cell (TITLE . FILE-PATH). Returns formatted
+strings with title, file path, and content preview."
+  (mapcar (lambda (note)
+            (let* ((title (car note))
+                   (file (cdr note))
+                   (preview (when (file-exists-p file)
+                             (with-temp-buffer
+                               (insert-file-contents file nil 0 (* doomai-search-preview-length 2))
+                               (let ((content (buffer-string)))
+                                 ;; Simple preview extraction - first paragraph
+                                 (if (string-match "^[^#\n]*\\([^:]+\\)" content)
+                                     (string-trim (match-string 1 content))
+                                   (substring content 0 (min (length content) doomai-search-preview-length))))))))
+              ;; Format: "Title | preview text..."
+              (format "%s | %s" 
+                      title
+                      (if preview 
+                          (concat (substring preview 0 (min (length preview) doomai-search-preview-length)) "...")
+                        "No preview available"))))
+          notes))
+
 ;;
 ;;; Interactive Commands
 ;; These functions provide the user-facing interface for DoomAI functionality.
@@ -354,10 +423,26 @@ Analyzes note content and suggests appropriate org-mode tags based on:
 ;;;###autoload
 (defun +doomai/semantic-search ()
   "Perform semantic search across all notes.
-Future feature: Will enable natural language search across
-the entire org-roam database using AI embeddings."
+Uses AI to understand search queries in natural language and find
+semantically related notes, even when exact keywords don't match."
   (interactive)
-  (message "Semantic search - Feature coming soon!"))
+  (let* ((query (read-string "Search query: "))
+         (results (+doomai--search-notes query)))
+    
+    (if results
+        (let* ((formatted-results (+doomai--format-search-results results query))
+               (selection (completing-read 
+                          (format "Search results for '%s': " query)
+                          formatted-results nil t)))
+          ;; Extract title from formatted selection
+          (when (string-match "^\\(.*?\\) |" selection)
+            (let* ((selected-title (match-string 1 selection))
+                   (selected-note (cl-find selected-title results 
+                                          :key #'car :test #'string=)))
+              (when selected-note
+                (find-file (cdr selected-note))
+                (message "DoomAI: Opened '%s'" (car selected-note))))))
+      (message "DoomAI: No results found for '%s'" query))))
 
 ;;;###autoload
 (defun +doomai/daily-prompt ()

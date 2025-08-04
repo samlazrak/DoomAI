@@ -51,6 +51,16 @@ If nil, will analyze all org-roam files for tag patterns."
   :type '(repeat file)
   :group 'doomai)
 
+(defcustom doomai-search-limit 20
+  "Maximum number of notes to include in semantic search results."
+  :type 'integer
+  :group 'doomai)
+
+(defcustom doomai-search-preview-length 200
+  "Number of characters to show in search result previews."
+  :type 'integer
+  :group 'doomai)
+
 ;;
 ;;; Internal variables
 
