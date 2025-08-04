@@ -115,9 +115,44 @@ Returns parsed JSON response from the server."
       (json-read))))
 
 ;;
+;;; Helper Functions for Org-roam Integration
+
+(defun +doomai--get-org-roam-notes ()
+  "Get all org-roam notes with their titles and file paths.
+Returns a list of cons cells (TITLE . FILE-PATH) for all notes
+in the org-roam network."
+  (when (fboundp 'org-roam-node-list)
+    (mapcar (lambda (node)
+              (cons (org-roam-node-title node)
+                    (org-roam-node-file node)))
+            (org-roam-node-list))))
+
+(defun +doomai--extract-existing-tags ()
+  "Extract and analyze existing tags from org-roam files.
+Returns a list of tags sorted by frequency of use across the
+org-roam network. This helps maintain consistent tagging patterns."
+  (let ((tag-counts (make-hash-table :test 'equal))
+        (files-to-scan (or doomai-tag-source-files
+                          (mapcar #'cdr (+doomai--get-org-roam-notes)))))
+    (dolist (file files-to-scan)
+      (when (and file (file-exists-p file))
+        (with-temp-buffer
+          (insert-file-contents file)
+          (org-mode)
+          (let ((tags (org-get-tags)))
+            (dolist (tag tags)
+              (puthash tag (1+ (gethash tag tag-counts 0)) tag-counts))))))
+    ;; Convert hash table to sorted list by frequency
+    (let ((tag-list '()))
+      (maphash (lambda (tag count)
+                 (push (cons tag count) tag-list))
+               tag-counts)
+      (mapcar #'car (sort tag-list (lambda (a b) (> (cdr a) (cdr b))))))))
+
+;;
 ;;; Interactive Commands
 ;; These functions provide the user-facing interface for DoomAI functionality.
-;; All are autoloaded and available through the SPC a n keymap.
+;; All are autoloaded and available through the SPC d a keymap.
 
 ;;;###autoload
 (defun +doomai/server-status ()
@@ -190,10 +225,50 @@ related notes from the org-roam database for cross-linking."
 ;;;###autoload
 (defun +doomai/auto-tag ()
   "Automatically suggest tags for the current note.
-Future feature: Will analyze note content and suggest appropriate
-org-mode tags based on content and existing tag patterns."
+Analyzes note content and suggests appropriate org-mode tags based on:
+1. Content semantic analysis via AI
+2. Existing tag patterns in the org-roam network
+3. Current tags already applied to this note"
   (interactive)
-  (message "Auto-tagging - Feature coming soon!"))
+  (unless (derived-mode-p 'org-mode)
+    (user-error "DoomAI auto-tag only works in org-mode buffers"))
+  
+  (let* ((content (buffer-string))
+         (existing-tags (+doomai--extract-existing-tags))
+         (current-tags (org-get-tags))
+         (tag-context (if existing-tags
+                         (format "Common tags in this knowledge base: %s\n\n"
+                                (mapconcat 'identity (take 20 existing-tags) ", "))
+                       ""))
+         (messages `[((role . "user") 
+                      (content . ,(format "%sAnalyze this note and suggest %d relevant tags. Return ONLY a comma-separated list of tags, no explanation:\n\nCurrent tags: %s\n\nNote content:\n%s"
+                                         tag-context
+                                         doomai-max-suggestions
+                                         (if current-tags (mapconcat 'identity current-tags ", ") "none")
+                                         content)))])
+         (response (+doomai--make-request messages)))
+    
+    (when-let ((suggested-tags-text (cdr (assq 'content (cdr (assq 'message (aref (cdr (assq 'choices response)) 0)))))))
+      ;; Parse comma-separated tags and clean them up
+      (let* ((suggested-tags (mapcar (lambda (tag)
+                                      (string-trim (downcase tag)))
+                                    (split-string suggested-tags-text ",")))
+             ;; Remove any tags that are already applied
+             (new-tags (cl-remove-if (lambda (tag) (member tag current-tags)) suggested-tags))
+             ;; Let user select which tags to apply
+             (selected-tags (when new-tags
+                             (completing-read-multiple 
+                              "Select tags to apply: "
+                              new-tags nil nil))))
+        
+        (if selected-tags
+            (progn
+              ;; Apply the selected tags
+              (org-set-tags (append current-tags selected-tags))
+              (message "DoomAI: Applied %d tags: %s" 
+                      (length selected-tags)
+                      (mapconcat 'identity selected-tags ", ")))
+          (message "DoomAI: No new tags selected"))))))
 
 ;;;###autoload
 (defun +doomai/semantic-search ()

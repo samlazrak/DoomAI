@@ -1,0 +1,32 @@
+#+TITLE: Machine Learning Fundamentals
+
+* Introduction to Neural Networks
+
+Neural networks are computational models inspired by the human brain. They consist of interconnected nodes (neurons) that process information through weighted connections.
+
+** Key Components
+
+- *Neurons*: Basic processing units that receive inputs, apply weights, and produce outputs
+- *Layers*: Collections of neurons organized in input, hidden, and output layers  
+- *Weights*: Parameters that determine the strength of connections between neurons
+- *Activation Functions*: Mathematical functions that introduce non-linearity
+
+** Training Process
+
+The training process involves:
+
+1. Forward propagation: Data flows through the network
+2. Loss calculation: Compare predictions with actual results
+3. Backpropagation: Adjust weights to minimize error
+4. Iteration: Repeat until convergence
+
+** Applications
+
+Neural networks are used in:
+- Image recognition and computer vision
+- Natural language processing  
+- Speech recognition
+- Recommendation systems
+- Autonomous vehicles
+
+This is fundamental knowledge for anyone starting in artificial intelligence and machine learning.

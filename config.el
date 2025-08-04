@@ -40,6 +40,17 @@ Each entry is a cons cell of (SERVER-TYPE . ENDPOINT-URL)."
   :type 'string
   :group 'doomai)
 
+(defcustom doomai-max-suggestions 5
+  "Maximum number of suggestions to show for auto-tag and connections."
+  :type 'integer
+  :group 'doomai)
+
+(defcustom doomai-tag-source-files nil
+  "List of org files to analyze for existing tag patterns.
+If nil, will analyze all org-roam files for tag patterns."
+  :type '(repeat file)
+  :group 'doomai)
+
 ;;
 ;;; Internal variables
 
